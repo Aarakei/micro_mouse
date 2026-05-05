@@ -21,7 +21,7 @@ static const char *TAG = "example";
    !!!IMPORTANT!!! This is the GPIO pin for the LED. It will not blink unless it is the right pin for your board.
    esp32s3 should use 38. If using another esp32 board, check the defaults
 */
-#define BLINK_GPIO 38
+#define BLINK_GPIO 2
 #define BLINK_PERIOD 1000
 
 static uint8_t s_led_state = 0;
