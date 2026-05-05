@@ -1,5 +1,7 @@
 # VS Code
 **/.vscode/
+# Allow only these specific shared config files
+!/.vscode/settings.json
 
 # macOS
 .DS_Store
