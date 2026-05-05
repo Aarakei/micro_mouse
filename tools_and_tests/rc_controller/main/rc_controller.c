@@ -7,7 +7,7 @@
 #include "esp_log.h"
 
 // make sure this is the mac address of the actual device you want to be sending joystick data to
-const uint8_t MOUSE_MAC[6] = {0xA4,0xF0,0x0F,0x75,0xAF,0x30}; 
+uint8_t MOUSE_MAC[6] = {0xA4,0xF0,0x0F,0x75,0xAF,0x30}; 
 
 void add_peer(uint8_t mac_address[6]) {
     // 2. Create the "Contact Card" (The Struct)
