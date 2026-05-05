@@ -1,5 +1,5 @@
 # VS Code
-**/.vscode/
+**/.vscode/*
 # Allow only these specific shared config files
 !/.vscode/settings.json
 

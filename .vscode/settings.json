@@ -1,0 +1,4 @@
+{
+    "C_Cpp.default.configurationProvider": "espressif.esp-idf-extension",
+    "C_Cpp.intelliSenseEngine": "default"
+}
