@@ -10,11 +10,12 @@
 #include "esp_adc/adc_oneshot.h"
 
 // Define the channels based on your S3's pinout
-#define JOYSTICK_X_ADC_CHAN ADC_CHANNEL_0
+#define JOYSTICK_X_ADC_CHAN ADC_CHANNEL_3
 #define JOYSTICK_Y_ADC_CHAN ADC_CHANNEL_1
 
 // make sure this is the mac address of the actual device you want to be sending joystick data to
-uint8_t MOUSE_MAC[6] = {0xA4,0xF0,0x0F,0x75,0xAF,0x30}; 
+// 9C:13:9E:AC:4C:D4
+uint8_t MOUSE_MAC[6] = {0x9C,0x13,0x9E,0xAC,0x4C,0xD4}; 
 
 void add_peer(uint8_t mac_address[6]) {
     // 2. Create the "Contact Card" (The Struct)
@@ -138,6 +139,6 @@ void app_main(void) {
     init_joystick_adc();
     while (1) {
         send_joystick_data();
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
