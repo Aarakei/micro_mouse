@@ -149,4 +149,81 @@ void app_main(void)
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
+
+
+
+
+
+
+
+
+
+
+
+    #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+#include "driver/ledc.h"
+
+// TODO: Figure out which pins are going to be used
+#define MOTOR_INPUT_1 15
+#define MOTOR_INPUT_2 16
+#define MOTOR_PWM 17
+
+void motor_init() {
+    // configure the io pins for the motors
+    gpio_config_t io_configuration = {
+        .pin_bit_mask = (1ULL << MOTOR_INPUT_1) | (1ULL << MOTOR_INPUT_2),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE
+    };
+    gpio_config(&io_configuration);
+
+    // configure the pwm settings
+    ledc_timer_config_t ledc_timer_configuration = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .timer_num = LEDC_TIMER_0,
+        .duty_resolution = LEDC_TIMER_8_BIT,
+        .freq_hz = 20000,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&ledc_timer_configuration);
+
+    ledc_channel_config_t ledc_channel_configuration = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .timer_sel = LEDC_TIMER_0,
+        .intr_type = LEDC_INTR_DISABLE,
+        .gpio_num = MOTOR_PWM,
+        .duty = 0,
+        .hpoint = 0
+    };
+    ledc_channel_config(&ledc_channel_configuration);
+}
+
+void set_motor_speed(uint32_t duty, bool forward) {
+    // Set direction
+    gpio_set_level(MOTOR_INPUT_1, forward ? 1 : 0);
+    gpio_set_level(MOTOR_INPUT_2, forward ? 0 : 1);
+
+    // Set speed (duty cycle)
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
+void motors_task(void *pv_parameters) {
+    while(1) {
+        for(int i = 0; i < 80; i++) {
+            set_motor_speed(i, true);
+            printf("i: %d\n", i);
+            vTaskDelay(100);
+        }
+
+        for(int i = 80; i >= 0; i++) {
+            set_motor_speed(i, false);
+            printf("i: %d\n", i);
+            vTaskDelay(100);
+        }
+    }
+}
 }
