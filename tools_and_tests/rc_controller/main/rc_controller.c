@@ -15,7 +15,8 @@
 
 // make sure this is the mac address of the actual device you want to be sending joystick data to
 // 9C:13:9E:AC:4C:D4
-uint8_t MOUSE_MAC[6] = {0x9C,0x13,0x9E,0xAC,0x4C,0xD4}; 
+// current mouse: 9C:13:9E:AC:3F:38
+uint8_t MOUSE_MAC[6] = {0x9C,0x13,0x9E,0xAC,0x3F,0x38}; 
 
 void add_peer(uint8_t mac_address[6]) {
     // 2. Create the "Contact Card" (The Struct)
