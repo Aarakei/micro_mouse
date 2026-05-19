@@ -271,8 +271,8 @@ void app_main(void)
     
 
     while (1) {
-        drv8833_set_speed(&left_motor, 255, left_forward);
-        drv8833_set_speed(&right_motor, 255, right_forward);
+        drv8833_set_speed(&left_motor, 255, true);
+        drv8833_set_speed(&right_motor, 255, true);
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
