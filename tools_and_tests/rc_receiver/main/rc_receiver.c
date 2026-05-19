@@ -211,42 +211,6 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
         drv8833_set_speed(&left_motor, left_duty, left_forward);
         drv8833_set_speed(&right_motor, right_duty, right_forward);
 
-
-        // // Only average if enabled
-        // if (averaging_enabled) {
-
-        //     x_total += received_data.x;
-        //     y_total += received_data.y;
-
-        //     sample_counter++;
-
-        //     // Enough samples collected?
-        //     if (sample_counter >= SAMPLE_COUNT) {
-
-        //         float x_avg = (float)x_total / sample_counter;
-        //         float y_avg = (float)y_total / sample_counter;
-
-        //         printf("\n========== AVERAGE ==========\n");
-        //         printf("Average X: %.2f\n", x_avg);
-        //         printf("Average Y: %.2f\n", y_avg);
-        //         printf("=============================\n\n");
-
-        //         // Disable averaging temporarily
-        //         averaging_enabled = false;
-
-        //         // Reset totals for next averaging cycle
-        //         x_total = 0;
-        //         y_total = 0;
-        //         sample_counter = 0;
-
-        //         // Pause averaging
-        //         vTaskDelay(PAUSE_TIME_MS / portTICK_PERIOD_MS);
-
-        //         // Re-enable averaging
-        //         averaging_enabled = true;
-        //     }
-        // }
-
     } else {
         ESP_LOGW(TAG, "Received unexpected data length: %d bytes", data_len);
     }
@@ -304,7 +268,12 @@ void app_main(void)
     drv8833_motor_init(&left_motor);
     drv8833_motor_init(&right_motor);
 
+    
+
     while (1) {
+        drv8833_set_speed(&left_motor, 255, left_forward);
+        drv8833_set_speed(&right_motor, 255, right_forward);
+
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 
