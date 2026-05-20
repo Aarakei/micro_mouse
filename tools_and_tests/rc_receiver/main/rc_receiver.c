@@ -44,11 +44,11 @@ typedef struct {
 } __attribute__((packed)) joystick_t;
 
 // Define Pins
-#define LEFT_IO_1   4
-#define LEFT_IO_2   5
+#define LEFT_IO_1   5
+#define LEFT_IO_2   4
 
-#define RIGHT_IO_1  40
-#define RIGHT_IO_2  41
+#define RIGHT_IO_1  1
+#define RIGHT_IO_2  2
 
 #define MAX_DUTY 255
 
@@ -189,8 +189,8 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
         }
 
         // 1. Mix arcade steering: Combined linear and turning forces
-        float left_power  = joy_y + joy_x;
-        float right_power = joy_y - joy_x;
+        float left_power  = joy_y - joy_x;
+        float right_power = joy_y + joy_x;
 
         // 2. Clamp powers strictly between -1.0 and 1.0 to prevent mathematical overflow
         if (left_power > 1.0f)  left_power = 1.0f;
@@ -268,11 +268,26 @@ void app_main(void)
     drv8833_motor_init(&left_motor);
     drv8833_motor_init(&right_motor);
 
+    // 1. Configure the GPIO pin
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << 3), // Bitmask of the pin
+        .mode = GPIO_MODE_OUTPUT,              // Set as output mode
+        .pull_up_en = GPIO_PULLUP_DISABLE,     // Disable pull-up
+        .pull_down_en = GPIO_PULLDOWN_DISABLE, // Disable pull-down
+        .intr_type = GPIO_INTR_DISABLE         // Disable interrupt
+    };
+    gpio_config(&io_conf);
+
+    // 2. Set the pin to Digital HIGH
+    gpio_set_level(3, 1);
     
 
     while (1) {
-        drv8833_set_speed(&left_motor, 255, true);
-        drv8833_set_speed(&right_motor, 255, true);
+        // drv8833_set_speed(&left_motor, 127, true);
+        // drv8833_set_speed(&right_motor, 127, true);
+        
+
+        // ESP_LOGI(TAG, "setting both duty cycles to 127");
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
