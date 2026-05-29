@@ -1,3 +1,6 @@
+Starting Program Flowchart
+https://lucid.app/lucidchart/6eb8c024-2453-4e61-b1ac-233efe1e1f8c/edit
+
 RULES:
 https://attend.ieee.org/r2sac-2020/wp-content/uploads/sites/175/2020/01/MicroMouse_Rules_2020.pdf
 
