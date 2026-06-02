@@ -1,0 +1,23 @@
+This is where I write my thoughts about the f to get the robot to go around walls. 
+
+Idea 1
+I would love to tell the robot to just go through the walls and then go backwards when it sees 
+that it is inside a wall, but that is not going to work for a physical robot so obviously I can't do that.
+
+Idea 2
+Alternatively, I think I will need to create a pathfinding function. This function will be called every time
+the robot moves in order to chart the next movement through the maze. In essence, pathfinding() will take the 
+memory array and calculate the shortest distance from location to ending without passing through any zeros.
+Hypothetically, the computer should be able to calculate this through a simple for loop in the blink of an eye,
+so that should be all that I need to do. 
+
+pathfinding pseudocode:
+[Completed] Take current locations x coordinate and y coordinate, figure out which quadrant it is, and determine direction it 
+needs to go.
+[] Using a for loop, run through every iteration of how the robot could get to the ending.
+[] To save time, the for loop will break if the path it is creating exceeds the length of the current shortest path. 
+    The initial value for the shortest path will be 256 because that is the longest a path could possible be.
+[] The for loop will check all 4 directions that it could go from it's current location, starting with the choice that is 
+    shortest distance to the end, and ending with the direction it came from. 
+[] If the shortest path involves hitting a 1, it will not do that and choose a different path.
+     
