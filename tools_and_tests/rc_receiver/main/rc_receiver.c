@@ -40,7 +40,7 @@ static const char *TAG = "MOUSE_RECEIVER";
 typedef struct {
     int16_t x;
     int16_t y;
-    bool pressed;
+    uint8_t buttons;
 } __attribute__((packed)) joystick_t;
 
 // Define Pins
@@ -131,14 +131,59 @@ drv8833_motor_t right_motor = {
 };
 
 // ======================
-// AVERAGING VARIABLES
+// Mixing Motors
 // ======================
 
-static int32_t x_total = 0;
-static int32_t y_total = 0;
-static int sample_counter = 0;
+void mix_motors(joystick_t received_data, uint32_t* left_duty, uint32_t* right_duty, bool* left_forward, bool* right_forward) {
 
-static bool averaging_enabled = true;
+    // Convert Joystick values to motor values
+    float joy_x;
+    float joy_y;
+
+    if(received_data.x > JOY_X_MAX){
+        joy_x = 1;
+    } else if(received_data.x < JOY_X_MIN){
+        joy_x = -1;
+    } else if(abs(received_data.x - JOY_X_CENTER) < DEADZONE){
+        joy_x = 0;
+    } else if (received_data.x > JOY_X_CENTER){
+        joy_x = (float)(received_data.x - JOY_X_CENTER) / (JOY_X_MAX - JOY_X_CENTER);
+    } else {
+        joy_x = (float)(received_data.x - JOY_X_CENTER) / (JOY_X_CENTER - JOY_X_MIN);
+    }
+
+    if(received_data.y > JOY_Y_MAX){
+        joy_y = 1;
+    } else if(received_data.y < JOY_Y_MIN){
+        joy_y = -1;
+    } else if(abs(received_data.y - JOY_Y_CENTER) < DEADZONE){
+        joy_y = 0;
+    } else if (received_data.y > JOY_Y_CENTER){
+        joy_y = (float)(received_data.y - JOY_Y_CENTER) / (JOY_Y_MAX - JOY_Y_CENTER);
+    } else {
+        joy_y = (float)(received_data.y - JOY_Y_CENTER) / (JOY_Y_CENTER - JOY_Y_MIN);
+    }
+
+    // 1. Mix arcade steering: Combined linear and turning forces
+    float left_power  = joy_y - joy_x;
+    float right_power = joy_y + joy_x;
+
+    // 2. Clamp powers strictly between -1.0 and 1.0 to prevent mathematical overflow
+    if (left_power > 1.0f)  left_power = 1.0f;
+    if (left_power < -1.0f) left_power = -1.0f;
+    if (right_power > 1.0f) right_power = 1.0f;
+    if (right_power < -1.0f) right_power = -1.0f;
+
+    // 3. Convert float power to absolute hardware duty cycle integers (0 to 255)
+    // fabsf() ensures duty cycle is always a positive value
+    *left_duty  = (uint32_t)(fabsf(left_power) * MAX_DUTY);
+    *right_duty = (uint32_t)(fabsf(right_power) * MAX_DUTY);
+
+    // 4. Determine direction flags based on the positive or negative signs
+    *left_forward  = (left_power >= 0.0f);
+    *right_forward = (right_power >= 0.0f);
+
+}
 
 // ======================
 // RECEIVE CALLBACK
@@ -155,57 +200,15 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
         memcpy(&received_data, data, sizeof(joystick_t));
 
         // Print raw values
-        printf("Joystick -> X: %d | Y: %d | Pressed: %s\n",
+        printf("Joystick -> X: %d | Y: %d | Pressed: %hhu\n",
                received_data.x,
                received_data.y,
-               received_data.pressed ? "True" : "False");
+               received_data.buttons);
 
-        // Convert Joystick values to motor values
-        float joy_x;
-        float joy_y;
+        uint32_t left_duty, right_duty;
+        bool left_forward, right_forward;
 
-        if(received_data.x > JOY_X_MAX){
-            joy_x = 1;
-        } else if(received_data.x < JOY_X_MIN){
-            joy_x = -1;
-        } else if(abs(received_data.x - JOY_X_CENTER) < DEADZONE){
-            joy_x = 0;
-        } else if (received_data.x > JOY_X_CENTER){
-            joy_x = (float)(received_data.x - JOY_X_CENTER) / (JOY_X_MAX - JOY_X_CENTER);
-        } else {
-            joy_x = (float)(received_data.x - JOY_X_CENTER) / (JOY_X_CENTER - JOY_X_MIN);
-        }
-
-        if(received_data.y > JOY_Y_MAX){
-            joy_y = 1;
-        } else if(received_data.y < JOY_Y_MIN){
-            joy_y = -1;
-        } else if(abs(received_data.y - JOY_Y_CENTER) < DEADZONE){
-            joy_y = 0;
-        } else if (received_data.y > JOY_Y_CENTER){
-            joy_y = (float)(received_data.y - JOY_Y_CENTER) / (JOY_Y_MAX - JOY_Y_CENTER);
-        } else {
-            joy_y = (float)(received_data.y - JOY_Y_CENTER) / (JOY_Y_CENTER - JOY_Y_MIN);
-        }
-
-        // 1. Mix arcade steering: Combined linear and turning forces
-        float left_power  = joy_y - joy_x;
-        float right_power = joy_y + joy_x;
-
-        // 2. Clamp powers strictly between -1.0 and 1.0 to prevent mathematical overflow
-        if (left_power > 1.0f)  left_power = 1.0f;
-        if (left_power < -1.0f) left_power = -1.0f;
-        if (right_power > 1.0f) right_power = 1.0f;
-        if (right_power < -1.0f) right_power = -1.0f;
-
-        // 3. Convert float power to absolute hardware duty cycle integers (0 to 255)
-        // fabsf() ensures duty cycle is always a positive value
-        uint32_t left_duty  = (uint32_t)(fabsf(left_power) * MAX_DUTY);
-        uint32_t right_duty = (uint32_t)(fabsf(right_power) * MAX_DUTY);
-
-        // 4. Determine direction flags based on the positive or negative signs
-        bool left_forward  = (left_power >= 0.0f);
-        bool right_forward = (right_power >= 0.0f);
+        mix_motors(received_data, &left_duty, &right_duty, &left_forward, &right_forward);
 
         // 5. Send these computed values straight to your DRV8833 motor structs
         drv8833_set_speed(&left_motor, left_duty, left_forward);
