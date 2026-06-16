@@ -43,6 +43,13 @@ typedef struct {
     uint8_t buttons;
 } __attribute__((packed)) joystick_t;
 
+typedef struct {
+    uint8_t left_pwm;
+    uint8_t right_pwm;
+    bool left_fwd;
+    bool right_fwd;
+} __attribute__((packed)) motor_val_t;
+
 // Define Pins
 #define LEFT_IO_1   5
 #define LEFT_IO_2   4
@@ -196,7 +203,6 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
     if (data_len == sizeof(joystick_t)) {
 
         joystick_t received_data;
-
         memcpy(&received_data, data, sizeof(joystick_t));
 
         // Print raw values
@@ -207,12 +213,23 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
 
         uint32_t left_duty, right_duty;
         bool left_forward, right_forward;
-
         mix_motors(received_data, &left_duty, &right_duty, &left_forward, &right_forward);
 
-        // 5. Send these computed values straight to your DRV8833 motor structs
+        // Send the values to the drv8833 structs
         drv8833_set_speed(&left_motor, left_duty, left_forward);
         drv8833_set_speed(&right_motor, right_duty, right_forward);
+        
+
+    } else if (data_len == sizeof(motor_val_t)) {
+        
+        motor_val_t motor_vals;
+        memcpy(&motor_vals, data, sizeof(motor_val_t));
+        
+        // Send the values to the drv8833 structs
+        drv8833_set_speed(&left_motor, motor_vals.left_pwm, motor_vals.left_fwd);
+        drv8833_set_speed(&right_motor, motor_vals.right_pwm, motor_vals.right_fwd);
+
+        ESP_LOGI(TAG, "Current motor duty cycles --- L: %d   R: %d", motor_vals.left_pwm, motor_vals.right_pwm);
 
     } else {
         ESP_LOGW(TAG, "Received unexpected data length: %d bytes", data_len);
