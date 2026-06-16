@@ -171,9 +171,9 @@ void send_joystick_data(void) {
 
     } else { // mode is 1, button control mode
         motor_val_t motor_data = {
-            .left_pwm = (uint8_t)abs(left_pwm),
-            .right_pwm = (uint8_t)abs(right_pwm),
-            .left_fwd = left_pwm > 0,
+            .left_pwm  = is_armed ? (uint8_t)abs(left_pwm)  : 0,
+            .right_pwm = is_armed ? (uint8_t)abs(right_pwm) : 0,
+            .left_fwd  = left_pwm  > 0,
             .right_fwd = right_pwm > 0,
         };
 
