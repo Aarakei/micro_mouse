@@ -8,10 +8,23 @@
 #include "esp_mac.h"
 #include "esp_log.h"
 #include "esp_adc/adc_oneshot.h"
+#include "driver/gpio.h"
 
-// Define the channels based on your S3's pinout
-#define JOYSTICK_X_ADC_CHAN ADC_CHANNEL_3
-#define JOYSTICK_Y_ADC_CHAN ADC_CHANNEL_1
+// Define the channels based ons your S3's pinout
+#define JOYSTICK_X_ADC_CHAN ADC_CHANNEL_7 // worked before with ADC_CHANNEL_3
+#define JOYSTICK_Y_ADC_CHAN ADC_CHANNEL_8 // worked before with ADC_CHANNEL_1
+#define BUTTON_UP GPIO_NUM_11
+#define BUTTON_DOWN GPIO_NUM_47
+#define BUTTON_LEFT GPIO_NUM_21
+#define BUTTON_RIGHT GPIO_NUM_10
+#define BUTTON_A GPIO_NUM_34
+#define BUTTON_B GPIO_NUM_33
+
+int mode = 0; // RC mode, mode 1 = button control
+bool is_armed = false;
+bool button_flag = false; // becomes true when a button is pressed to prevent multiple reads of the same press
+int left_pwm = 0;
+int right_pwm = 0;
 
 // make sure this is the mac address of the actual device you want to be sending joystick data to
 // 9C:13:9E:AC:4C:D4
@@ -60,14 +73,21 @@ void init_joystick_adc(void) {
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, JOYSTICK_X_ADC_CHAN, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, JOYSTICK_Y_ADC_CHAN, &config));
     
-    ESP_LOGI("JOYSTICK", "ADC Initialized on GPIO 8 and 9");
+    ESP_LOGI("JOYSTICK", "ADC Initialized on GPIO 7 and 8");
 }
 
 typedef struct {
     int16_t x;
     int16_t y;
-    bool pressed;
+    uint8_t buttons;
 } __attribute__((packed)) joystick_t;
+
+typedef struct {
+    uint8_t left_pwm;
+    uint8_t right_pwm;
+    bool left_fwd;
+    bool right_fwd;
+} __attribute__((packed)) motor_val_t;
 
 joystick_t read_joystick() {
     joystick_t data;
@@ -81,8 +101,14 @@ joystick_t read_joystick() {
     data.x = (int16_t)x_raw;
     data.y = (int16_t)y_raw;
     
-    // We'll leave this as false for now, unless you have a 3rd pin wired to the joystick button!
-    data.pressed = false; 
+    // Bitpack Button values into an int8_t
+    data.buttons = 0;
+    data.buttons = (gpio_get_level(BUTTON_A)     << 0)
+                 | (gpio_get_level(BUTTON_B)     << 1)
+                 | (gpio_get_level(BUTTON_UP)    << 2)
+                 | (gpio_get_level(BUTTON_DOWN)  << 3)
+                 | (gpio_get_level(BUTTON_LEFT)  << 4)
+                 | (gpio_get_level(BUTTON_RIGHT) << 5);
 
     return data;
 }
@@ -91,18 +117,77 @@ void send_joystick_data(void) {
     // 1. Pack the data
     joystick_t data = read_joystick();
 
-    // 2. Send the data
-    // template : esp_now_send(peer_mac, data_buffer, data_length);
-    esp_err_t ret = esp_now_send(MOUSE_MAC, (uint8_t *)&data, sizeof(data));
+    if (data.buttons) { // If any buttons are being pressed
+        if (button_flag == false) { // If buttons weren't being pressed before
+            // TODO: Process button inputs
+            if (data.buttons & (1U << 0)) // Check 1st bit (button A)
+                is_armed = !is_armed; // arm/disarm the mouse
+            
+            if (data.buttons & (1U << 1)) // button B
+                mode = !mode;
+            
+            if (data.buttons & (1U << 2)) { // button UP
+                left_pwm++;
+                right_pwm++;
+            }
+            if (data.buttons & (1U << 3)) { // button DOWN
+                left_pwm--;
+                right_pwm--;
+            }
+            if (data.buttons & (1U << 4)) // button LEFT
+                left_pwm++;
+            
+            if (data.buttons & (1U << 5)) // button RIGHT
+                right_pwm++;
+        }
+        // Validate pwm values
+        if (left_pwm > 255)
+            left_pwm = 255;
+        if (left_pwm < -255)
+            left_pwm = -255;
+        if (right_pwm > 255)
+            right_pwm = 255;
+        if (right_pwm < -255)
+            right_pwm = -255;
 
-    // 3. Check how the send went
-    if (ret == ESP_OK) {
-        printf("data successfully sent\n");
-        printf("sent %d, %d\n", data.x, data.y);
+        button_flag = true;
     } else {
-        printf("Error in sending data\n");
-        printf("Error code: %d\n", ret);
+        button_flag = false;
     }
+
+    // 2. Send the data
+    if (mode == 0) { // RC mode
+        // template : esp_now_send(peer_mac, data_buffer, data_length);
+        esp_err_t ret = esp_now_send(MOUSE_MAC, (uint8_t *)&data, sizeof(data));
+
+        // 3. Check how the send went
+        if (ret == ESP_OK) {
+            printf("data successfully sent\n");
+            printf("sent %d, %d\n", data.x, data.y);
+        } else {
+            printf("Error in sending data\n");
+            printf("Error code: %d\n", ret);
+        }
+
+    } else { // mode is 1, button control mode
+        motor_val_t motor_data = {
+            .left_pwm  = is_armed ? (uint8_t)abs(left_pwm)  : 0,
+            .right_pwm = is_armed ? (uint8_t)abs(right_pwm) : 0,
+            .left_fwd  = left_pwm  > 0,
+            .right_fwd = right_pwm > 0,
+        };
+
+        esp_err_t ret = esp_now_send(MOUSE_MAC, (uint8_t *)&motor_data, sizeof(motor_data));
+
+        // 3. Check how the send went
+        if (ret == ESP_OK) {
+            printf("left: %d, right: %d, armed: %s\n", left_pwm, right_pwm, is_armed ? "true" : "false");
+        } else {
+            printf("Error in sending data: %d\n", ret);
+        }
+    }
+
+    
 }
 
 static const char *TAG = "MOUSE_CONTROLLER";
@@ -138,6 +223,24 @@ void app_main(void) {
     init_wifi_esp_now();
     add_peer(MOUSE_MAC);
     init_joystick_adc();
+
+    // 1. Structure to hold configuration settings
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << BUTTON_A) |
+                        (1ULL << BUTTON_B) |
+                        (1ULL << BUTTON_UP) |
+                        (1ULL << BUTTON_DOWN) |
+                        (1ULL << BUTTON_LEFT) |
+                        (1ULL << BUTTON_RIGHT), // Bit mask of the pins you want to configure
+        .mode = GPIO_MODE_INPUT,             // Set pin direction as Input
+        .pull_up_en = GPIO_PULLUP_ENABLE,     // Enable internal pull-up resistor
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,// Disable internal pull-down resistor
+        .intr_type = GPIO_INTR_DISABLE        // Disable interrupts for simple reading
+    };
+    
+    // 2. Apply configuration
+    gpio_config(&io_conf);
+
     while (1) {
         send_joystick_data();
         vTaskDelay(100 / portTICK_PERIOD_MS);
