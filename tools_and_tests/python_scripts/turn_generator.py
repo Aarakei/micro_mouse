@@ -70,7 +70,8 @@ def convert_velocity_to_pwm(velocity):
 
     # Scalar value to multiply velocity by to get pwm
     # Can be found by dividing the max pwm value (often 255) by the mouse's velocity at that pwm
-    conversion = 255/50 
+    # 44in*2.54(in/cm)/(31frames/26(frames/s))
+    conversion = 255/(44*2.54/(31/26)) 
 
     # Apply the conversion, then constrain to an integer
     for i in range(len(velocity)):
@@ -78,7 +79,6 @@ def convert_velocity_to_pwm(velocity):
         pwm_list.append(pwm)
     
     return pwm_list
-
 
 def calculate_pwm(x0,y0,x1,y1,x2,y2,x3,y3,mouse_width,resolution=100,timestep=10):
     """
@@ -99,13 +99,17 @@ def calculate_pwm(x0,y0,x1,y1,x2,y2,x3,y3,mouse_width,resolution=100,timestep=10
     
     return left_pwm, right_pwm
 
-
 def main():
-    mouse_width = 4
-    resolution = 100
+    mouse_width = 3.75 #37.5mm (ish)
+    resolution = 225
     timestep = 1
+    MAX_PWM = 255
+    x0, y0 = 21, 12
+    x1, y1 = 25.2426406871, 16.2426406871
+    x2, y2 = 25.2426406871, 19.7573593129
+    x3, y3 = 21, 24
 
-    left_pwm, right_pwm = calculate_pwm(0,0,18,0,18,18,0,18,mouse_width,resolution,timestep)
+    left_pwm, right_pwm = calculate_pwm(x0,y0,x1,y1,x2,y2,x3,y3,mouse_width,resolution,timestep)
     max_value = max((max(left_pwm),max(right_pwm)))
     min_value = min((min(left_pwm),min(right_pwm)))
     length = len(left_pwm)
@@ -123,7 +127,7 @@ def main():
     print(f"time to turn: {resolution*timestep/1000}")
     print()
 
-    suggested_resolution = max_value/255 * resolution
+    suggested_resolution = max_value/MAX_PWM * resolution
     time_to_turn = suggested_resolution*timestep/1000
     print(f"Given current timestep of {timestep}ms:")
     print(f"suggested resolution: {suggested_resolution}")
