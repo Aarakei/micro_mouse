@@ -20,7 +20,19 @@
 #define BUTTON_A GPIO_NUM_34
 #define BUTTON_B GPIO_NUM_33
 
-int mode = 0; // RC mode, mode 1 = button control
+const char *TURN_MODES[] = {
+    "SIMPLE_90",
+    "WIDE_90",
+    "WALL_180",
+    "INTO_45",
+    "INTO_135",
+    "OUT_45",
+    "OUT_135",
+    "DIAGONAL_90"
+};
+
+int mode = 0; // mode 0 = RC mode, mode 1 = button control, mode 2 = RC+Turn
+uint8_t selected_turn = 0;
 bool is_armed = false;
 bool button_flag = false; // becomes true when a button is pressed to prevent multiple reads of the same press
 int left_pwm = 0;
@@ -89,6 +101,14 @@ typedef struct {
     bool right_fwd;
 } __attribute__((packed)) motor_val_t;
 
+typedef struct {
+    int16_t x;
+    int16_t y;
+    uint8_t selected_turn;
+    uint8_t buttons;
+    bool armed;
+} __attribute__((packed)) turn_demo_packet_t;
+
 joystick_t read_joystick() {
     joystick_t data;
     int x_raw, y_raw;
@@ -119,26 +139,40 @@ void send_joystick_data(void) {
 
     if (data.buttons) { // If any buttons are being pressed
         if (button_flag == false) { // If buttons weren't being pressed before
-            // TODO: Process button inputs
+            
             if (data.buttons & (1U << 0)) // Check 1st bit (button A)
                 is_armed = !is_armed; // arm/disarm the mouse
-            
+
             if (data.buttons & (1U << 1)) // button B
-                mode = !mode;
-            
-            if (data.buttons & (1U << 2)) { // button UP
-                left_pwm++;
-                right_pwm++;
+                mode = (mode + 1) % 3;
+
+            // Change the behavior of the rest of the buttons based on which mode you're in
+
+            if (mode == 2) {
+
+                if (data.buttons & (1U << 2)) // button UP
+                    selected_turn = (selected_turn + 1) % 8;
+
+                if (data.buttons & (1U << 3)) // button DOWN
+                    selected_turn = (selected_turn - 1) % 8;
+
+            } else {       
+
+                if (data.buttons & (1U << 2)) { // button UP
+                    left_pwm++;
+                    right_pwm++;
+                }
+                if (data.buttons & (1U << 3)) { // button DOWN
+                    left_pwm--;
+                    right_pwm--;
+                }
+                if (data.buttons & (1U << 4)) // button LEFT
+                    left_pwm++;
+                
+                if (data.buttons & (1U << 5)) // button RIGHT
+                    right_pwm++;
+
             }
-            if (data.buttons & (1U << 3)) { // button DOWN
-                left_pwm--;
-                right_pwm--;
-            }
-            if (data.buttons & (1U << 4)) // button LEFT
-                left_pwm++;
-            
-            if (data.buttons & (1U << 5)) // button RIGHT
-                right_pwm++;
         }
         // Validate pwm values
         if (left_pwm > 255)
@@ -169,7 +203,7 @@ void send_joystick_data(void) {
             printf("Error code: %d\n", ret);
         }
 
-    } else { // mode is 1, button control mode
+    } else if (mode == 1) { // mode is 1, button control mode
         motor_val_t motor_data = {
             .left_pwm  = is_armed ? (uint8_t)abs(left_pwm)  : 0,
             .right_pwm = is_armed ? (uint8_t)abs(right_pwm) : 0,
@@ -185,6 +219,24 @@ void send_joystick_data(void) {
         } else {
             printf("Error in sending data: %d\n", ret);
         }
+    } else if (mode == 2) { // mode is 2, RC control & Turn Execute mode
+        
+        turn_demo_packet_t packet = {
+            .x = data.x,
+            .y = data.y,
+            .selected_turn = selected_turn,
+            .buttons = data.buttons,
+            .armed = is_armed
+        };
+
+        esp_err_t ret = esp_now_send(MOUSE_MAC, (uint8_t*)&packet, sizeof(packet));
+
+        if (ret == ESP_OK) {
+            printf("X: %d   Y: %d   Selected Turn: %s   Status: %s\n", packet.x, packet.y, TURN_MODES[packet.selected_turn], packet.armed ? "Armed" : "Disarmed");
+        } else {
+            printf("Error in sending data: %d\n", ret);
+        }
+
     }
 
     
