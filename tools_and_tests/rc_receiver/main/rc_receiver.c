@@ -12,7 +12,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
-#include "freertos/smphr.h"
+#include "freertos/semphr.h"
 #include "freertos/queue.h"
 #include "math.h"
 #include "turns.h"
@@ -257,20 +257,20 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
 
     case (sizeof(turn_demo_packet_t)):
 
-        turn_demo_packet_t received_data;
-        memcpy(&received_data, data, sizeof(turn_demo_packet_t));
+        turn_demo_packet_t demo_data;
+        memcpy(&demo_data, data, sizeof(turn_demo_packet_t));
 
         // ESP_LOGI(TAG, "Joystick X: %d   Y: %d   Turn: %d   %s", received_data.x, received_data.y, received_data.selected_turn, received_data.armed ? "ARMED" : "DISARMED");
         
 
-        if ((received_data.buttons & 1U << 4) || (received_data.buttons & 1U << 5)) {
+        if ((demo_data.buttons & 1U << 4) || (demo_data.buttons & 1U << 5)) {
 
             // 4 and 5 are the encoded positions for the left and right buttons
             if (turn_command_available) {
 
-                int queue_payload = received_data.selected_turn;
+                int queue_payload = demo_data.selected_turn;
 
-                if (received_data.buttons & 1U << 5) {
+                if (demo_data.buttons & 1U << 5) {
                     // Right (clockwise)
                     queue_payload += 8;
                 }
@@ -279,7 +279,7 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
 
                 turn_command_available = false;
             }
-            
+
         } else {
             // If turn command buttons aren't being pressed
             turn_command_available = true;
@@ -288,18 +288,18 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
 
         // Mix motor values based off of joystick values
         joystick_t joystick = {
-            .x = received_data.x,
-            .y = received_data.y,
-            .buttons = received_data.buttons
-        }
-        uint32_t left_duty, right_duty;
-        bool left_forward, right_forward;
-        mix_motors(joystick, &left_duty, &right_duty, &left_forward, &right_forward);
+            .x = demo_data.x,
+            .y = demo_data.y,
+            .buttons = demo_data.buttons
+        };
+        uint32_t demo_left_pwm, demo_right_pwm;
+        bool demo_left_fwd, demo_right_fwd;
+        mix_motors(joystick, &demo_left_pwm, &demo_right_pwm, &demo_left_fwd, &demo_right_fwd);
 
         // Send the values to the drv8833 structs if the motors aren't being used by other tasks
         if (xSemaphoreTake(motor_semaphore, 0) == pdPASS) {
-            drv8833_set_speed(&left_motor, motor_vals.left_pwm, motor_vals.left_fwd);
-            drv8833_set_speed(&right_motor, motor_vals.right_pwm, motor_vals.right_fwd);
+            drv8833_set_speed(&left_motor, demo_left_pwm, demo_left_fwd);
+            drv8833_set_speed(&right_motor, demo_right_pwm, demo_right_fwd);
             xSemaphoreGive(motor_semaphore);
         }
 
