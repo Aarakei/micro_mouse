@@ -12,11 +12,18 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "freertos/smphr.h"
+#include "freertos/queue.h"
 #include "math.h"
+#include "turns.h"
 
 
 
 static const char *TAG = "MOUSE_RECEIVER";
+static SemaphoreHandle_t motor_semaphore = NULL;
+static QueueHandle_t turn_queue = NULL;
+
+bool turn_command_available = true;
 
 // ======================
 // CONFIG
@@ -49,6 +56,14 @@ typedef struct {
     bool left_fwd;
     bool right_fwd;
 } __attribute__((packed)) motor_val_t;
+
+typedef struct {
+    int16_t x;
+    int16_t y;
+    uint8_t selected_turn;
+    uint8_t buttons;
+    bool armed;
+} __attribute__((packed)) turn_demo_packet_t;
 
 // Define Pins
 #define LEFT_IO_1   5
@@ -200,39 +215,99 @@ void on_data_recv(const esp_now_recv_info_t *esp_now_info,
                   const uint8_t *data,
                   int data_len)
 {
-    if (data_len == sizeof(joystick_t)) {
+    // BaseType_t xHigherPriorityTaskHasWoken = pdFALSE;
+    switch (data_len) {
+    case (sizeof(joystick_t)): 
 
         joystick_t received_data;
         memcpy(&received_data, data, sizeof(joystick_t));
 
         // Print raw values
-        printf("Joystick -> X: %d | Y: %d | Pressed: %hhu\n",
-               received_data.x,
-               received_data.y,
-               received_data.buttons);
+        // printf("Joystick -> X: %d | Y: %d | Pressed: %hhu\n",
+        //        received_data.x,
+        //        received_data.y,
+        //        received_data.buttons);
 
         uint32_t left_duty, right_duty;
         bool left_forward, right_forward;
         mix_motors(received_data, &left_duty, &right_duty, &left_forward, &right_forward);
 
         // Send the values to the drv8833 structs
-        drv8833_set_speed(&left_motor, left_duty, left_forward);
-        drv8833_set_speed(&right_motor, right_duty, right_forward);
-        
+        if (xSemaphoreTake(motor_semaphore, 0) == pdPASS) {
+            drv8833_set_speed(&left_motor, left_duty, left_forward);
+            drv8833_set_speed(&right_motor, right_duty, right_forward);
+            xSemaphoreGive(motor_semaphore);
+        }
+        break;
 
-    } else if (data_len == sizeof(motor_val_t)) {
+    case (sizeof(motor_val_t)):
         
         motor_val_t motor_vals;
         memcpy(&motor_vals, data, sizeof(motor_val_t));
         
-        // Send the values to the drv8833 structs
-        drv8833_set_speed(&left_motor, motor_vals.left_pwm, motor_vals.left_fwd);
-        drv8833_set_speed(&right_motor, motor_vals.right_pwm, motor_vals.right_fwd);
+        // Send the values to the drv8833 structs if the motors aren't being used by other tasks
+        if (xSemaphoreTake(motor_semaphore, 0) == pdPASS) {
+            drv8833_set_speed(&left_motor, motor_vals.left_pwm, motor_vals.left_fwd);
+            drv8833_set_speed(&right_motor, motor_vals.right_pwm, motor_vals.right_fwd);
+            xSemaphoreGive(motor_semaphore);
+        }
 
-        ESP_LOGI(TAG, "Current motor duty cycles --- L: %d   R: %d", motor_vals.left_pwm, motor_vals.right_pwm);
+        // ESP_LOGI(TAG, "Current motor duty cycles --- L: %d   R: %d", motor_vals.left_pwm, motor_vals.right_pwm);
+        break;
 
-    } else {
+    case (sizeof(turn_demo_packet_t)):
+
+        turn_demo_packet_t received_data;
+        memcpy(&received_data, data, sizeof(turn_demo_packet_t));
+
+        // ESP_LOGI(TAG, "Joystick X: %d   Y: %d   Turn: %d   %s", received_data.x, received_data.y, received_data.selected_turn, received_data.armed ? "ARMED" : "DISARMED");
+        
+
+        if ((received_data.buttons & 1U << 4) || (received_data.buttons & 1U << 5)) {
+
+            // 4 and 5 are the encoded positions for the left and right buttons
+            if (turn_command_available) {
+
+                int queue_payload = received_data.selected_turn;
+
+                if (received_data.buttons & 1U << 5) {
+                    // Right (clockwise)
+                    queue_payload += 8;
+                }
+
+                xQueueSend(turn_queue, &queue_payload, 0);
+
+                turn_command_available = false;
+            }
+            
+        } else {
+            // If turn command buttons aren't being pressed
+            turn_command_available = true;
+        }
+        
+
+        // Mix motor values based off of joystick values
+        joystick_t joystick = {
+            .x = received_data.x,
+            .y = received_data.y,
+            .buttons = received_data.buttons
+        }
+        uint32_t left_duty, right_duty;
+        bool left_forward, right_forward;
+        mix_motors(joystick, &left_duty, &right_duty, &left_forward, &right_forward);
+
+        // Send the values to the drv8833 structs if the motors aren't being used by other tasks
+        if (xSemaphoreTake(motor_semaphore, 0) == pdPASS) {
+            drv8833_set_speed(&left_motor, motor_vals.left_pwm, motor_vals.left_fwd);
+            drv8833_set_speed(&right_motor, motor_vals.right_pwm, motor_vals.right_fwd);
+            xSemaphoreGive(motor_semaphore);
+        }
+
+        break;
+    
+    default:
         ESP_LOGW(TAG, "Received unexpected data length: %d bytes", data_len);
+        break;
     }
 }
 
@@ -271,18 +346,62 @@ void init_wifi_esp_now(void)
 }
 
 // ======================
+// RUN TURNS TASK
+// ======================
+
+void vTurnExecutorTask(void *pvParameters) {
+
+    TurnSelect current_turn;
+
+    while (1) {
+
+        if (xQueueReceive(turn_queue, &current_turn, portMAX_DELAY) != pdPASS) {
+            // Don't run the code if the queue wasn't properly received
+            continue;
+        }
+
+        if (xSemaphoreTake(motor_semaphore, portMAX_DELAY) != pdPASS) {
+            // Don't run the code if the semaphore couldn't properly be taken
+            continue;
+        }
+        
+        // Grab pwm values from turn definitions
+        MotionProfile turn = TURNS[current_turn % 8];
+        bool is_clockwise = current_turn >= 8;
+        const int *left_pwm  = is_clockwise ? turn.pwm_long  : turn.pwm_short;
+        const int *right_pwm = is_clockwise ? turn.pwm_short : turn.pwm_long;
+
+        // Run the selected motion profile
+        for (int i = 0; i < turn.length; i++) {
+
+            drv8833_set_speed(&left_motor,  abs(left_pwm[i]),  left_pwm[i]  >= 0 ? true : false);
+            drv8833_set_speed(&right_motor, abs(right_pwm[i]), right_pwm[i] >= 0 ? true : false);
+
+            vTaskDelay(pdMS_TO_TICKS(turn.ms_per_tick));
+
+        }
+
+        // Set motor values to 0 so the mouse doesn't run away after the turn is complete
+        drv8833_set_speed(&left_motor, 0, true);
+        drv8833_set_speed(&right_motor, 0, true);
+
+        // Release the semaphore again
+        xSemaphoreGive(motor_semaphore);
+    
+    }
+
+}
+
+
+// ======================
 // MAIN
 // ======================
 
 void app_main(void)
 {
-    init_wifi_esp_now();
+    motor_semaphore = xSemaphoreCreateMutex();
 
-    ESP_ERROR_CHECK(esp_now_register_recv_cb(on_data_recv));
-
-    ESP_LOGI(TAG, "Mouse is listening for controller commands...");
-
-    
+    turn_queue = xQueueCreate(5, sizeof(int));
 
     // Initialize both independent instances
     drv8833_motor_init(&left_motor);
@@ -301,6 +420,26 @@ void app_main(void)
     // 2. Set the pin to Digital HIGH
     gpio_set_level(3, 1);
     
+
+    BaseType_t task_status = xTaskCreate(
+        vTurnExecutorTask,
+        "TurnExecutorTask",
+        4096,
+        NULL,
+        5,
+        NULL
+    );
+
+    if (task_status != pdPASS) {
+        ESP_LOGE("MAIN", "Failed to launch TurnExecutorTask! System halting.");
+        while(1);
+    }
+
+    init_wifi_esp_now();
+
+    ESP_ERROR_CHECK(esp_now_register_recv_cb(on_data_recv));
+
+    ESP_LOGI(TAG, "Mouse is listening for controller commands...");
 
     while (1) {
         // drv8833_set_speed(&left_motor, 127, true);
